@@ -1,0 +1,37 @@
+title = "Model Gateway Secret Scan"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "gateway-api-key"
+description = "Gateway API Key"
+regex = '''sk-gw-client-[a-zA-Z0-9]{32,}'''
+tags = ["key", "gateway"]
+
+[[rules]]
+id = "nvidia-api-key"
+description = "NVIDIA API Key"
+regex = '''nvapi-[a-zA-Z0-9]{20,}'''
+tags = ["key", "nvidia"]
+
+[[rules]]
+id = "admin-token"
+description = "Admin Token"
+regex = '''admin[_-]?token\s*[=:]\s*['\"]?[a-zA-Z0-9]{16,}'''
+tags = ["key", "admin"]
+
+[[rules]]
+id = "master-key"
+description = "Gateway Master Encryption Key"
+regex = '''master[_-]?key\s*[=:]\s*['\"]?[a-zA-Z0-9\-_]{32,}'''
+tags = ["key", "encryption"]
+
+[allowlist]
+description = "Allowed paths"
+paths = [
+  '''\.env\.example''',
+  '''\.gitleaks\.toml''',
+  '''tests/.*''',
+  '''config/.*\.yaml''',
+]
