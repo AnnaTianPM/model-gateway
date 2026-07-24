@@ -1,0 +1,80 @@
+version: 1
+
+health:
+  probe_interval_seconds: 300
+  degraded_probe_interval_seconds: 60
+  probe_timeout_seconds: 30
+  probe_concurrency: 10
+
+  beta_prior:
+    alpha: 5
+    beta: 1
+
+  eligibility:
+    min_samples: 3
+    min_reliability_lcb: 0.90
+    min_availability_5m: 0.70
+    max_ttft_p95_ms: 30000
+
+  circuit_breaker:
+    failure_threshold: 3
+    recovery_seconds: 60
+    half_open_successes: 2
+
+  special_probe_interval_seconds: 21600
+
+routing:
+  default_logical_model: auto
+
+  difficulty_quality_floor:
+    easy: 75
+    medium: 85
+    hard: 0
+
+  easy:
+    selection: fastest_above_quality_floor
+    score_gap_preference: 8
+  medium:
+    selection: highest_quality_then_reliability
+    tiebreak_gap: 3
+  hard:
+    selection: highest_quality
+
+  task_weights:
+    general:
+      general: 0.70
+      reasoning: 0.10
+      writing: 0.10
+      chinese: 0.10
+    coding:
+      coding: 0.70
+      reasoning: 0.15
+      tool_calling: 0.10
+      json: 0.05
+    reasoning:
+      reasoning: 0.55
+      math: 0.25
+      general: 0.20
+    writing:
+      writing: 0.70
+      general: 0.20
+      chinese: 0.10
+    translation:
+      translation: 0.70
+      chinese: 0.20
+      writing: 0.10
+    tools:
+      tool_calling: 0.65
+      json: 0.25
+      reasoning: 0.10
+    vision:
+      vision: 0.70
+      general: 0.20
+      reasoning: 0.10
+
+fallback:
+  max_total_attempts: 4
+  retry_same_route: false
+  prefer_same_model_provider_switch: true
+  allow_model_downgrade: true
+  failover_before_first_token_only: true

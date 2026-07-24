@@ -1,0 +1,11 @@
+# Example compose override for development
+services:
+  gateway:
+    build:
+      target: base
+    volumes:
+      - gateway-data:/app/data
+      - ./config:/app/config:ro
+      - ./app:/app/app:ro
+    environment:
+      - LOG_LEVEL=DEBUG

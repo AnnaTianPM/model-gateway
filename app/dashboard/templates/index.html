@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Model Gateway Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; }
+        .nav { background: #1e293b; padding: 12px 24px; display: flex; gap: 24px; align-items: center; border-bottom: 1px solid #334155; }
+        .nav h1 { font-size: 18px; color: #38bdf8; }
+        .nav a { color: #94a3b8; text-decoration: none; font-size: 14px; padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+        .nav a:hover { background: #334155; color: #e2e8f0; }
+        .nav a.active { background: #0ea5e9; color: white; }
+        .nav .right { margin-left: auto; display: flex; gap: 12px; align-items: center; }
+        .nav .version { color: #64748b; font-size: 12px; }
+        .container { padding: 24px; max-width: 1400px; margin: 0 auto; }
+        .card { background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 16px; border: 1px solid #334155; }
+        .card h2 { font-size: 16px; color: #38bdf8; margin-bottom: 12px; }
+        .stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
+        .stat { background: #0f172a; border-radius: 8px; padding: 16px; text-align: center; }
+        .stat .value { font-size: 28px; font-weight: bold; color: #38bdf8; }
+        .stat .label { font-size: 12px; color: #64748b; margin-top: 4px; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th { text-align: left; padding: 8px 12px; color: #64748b; border-bottom: 1px solid #334155; font-weight: 500; }
+        td { padding: 8px 12px; border-bottom: 1px solid #334155; }
+        tr:hover { background: #334155; }
+        .badge { padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; }
+        .badge-ok { background: #064e3b; color: #34d399; }
+        .badge-warn { background: #451a03; color: #fb923c; }
+        .badge-error { background: #450a0a; color: #f87171; }
+        .badge-closed { background: #064e3b; color: #34d399; }
+        .badge-open { background: #450a0a; color: #f87171; }
+        .badge-warming { background: #451a03; color: #fb923c; }
+        .login { max-width: 400px; margin: 100px auto; }
+        .login input { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; font-size: 14px; margin-bottom: 12px; }
+        .btn { padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer; font-size: 14px; }
+        .btn-primary { background: #0ea5e9; color: white; }
+        .btn-danger { background: #dc2626; color: white; }
+        .btn:hover { opacity: 0.9; }
+        .hidden { display: none !important; }
+        #content { display: none; }
+        pre { background: #0f172a; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div id="login" class="login card">
+        <h2>🔐 Admin Login</h2>
+        <input type="password" id="adminToken" placeholder="Admin Token" onkeydown="if(event.key==='Enter')doLogin()">
+        <button class="btn btn-primary" style="width:100%" onclick="doLogin()">Login</button>
+    </div>
+
+    <div id="content">
+        <div class="nav">
+            <h1>🚀 Model Gateway</h1>
+            <a class="nav-link active" data-page="overview">Overview</a>
+            <a class="nav-link" data-page="providers">Providers</a>
+            <a class="nav-link" data-page="models">Models</a>
+            <a class="nav-link" data-page="health">Health</a>
+            <a class="nav-link" data-page="routing">Routing</a>
+            <a class="nav-link" data-page="keys">Client Keys</a>
+            <div class="right">
+                <span class="version" id="versionInfo"></span>
+                <button class="btn btn-danger" onclick="doLogout()">Logout</button>
+            </div>
+        </div>
+        <div class="container" id="pageContent"></div>
+    </div>
+
+    <script>
+        let token = sessionStorage.getItem('adminToken') || '';
+
+        if (token) { document.getElementById('login').classList.add('hidden'); document.getElementById('content').style.display='block'; loadPage('overview'); }
+
+        function doLogin() {
+            token = document.getElementById('adminToken').value;
+            if (!token) return;
+            // Test the token
+            fetch('/api/admin/version', { headers: { 'Authorization': 'Bearer ' + token } })
+                .then(r => { if (r.ok) { sessionStorage.setItem('adminToken', token); document.getElementById('login').classList.add('hidden'); document.getElementById('content').style.display='block'; loadPage('overview'); } else { alert('Invalid token'); } })
+                .catch(() => alert('Connection error'));
+        }
+
+        function doLogout() { sessionStorage.removeItem('adminToken'); token=''; location.reload(); }
+
+        function api(path, method='GET', body=null) {
+            const opts = { method, headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' } };
+            if (body) opts.body = JSON.stringify(body);
+            return fetch(path, opts).then(r => r.ok ? r.json() : Promise.reject(r));
+        }
+
+        document.querySelectorAll('.nav-link').forEach(link => {
+            link.onclick = () => {
+                document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+                link.classList.add('active');
+                loadPage(link.dataset.page);
+            };
+        });
+
+        function loadPage(page) {
+            const c = document.getElementById('pageContent');
+            const pages = { overview: loadOverview, providers: loadProviders, models: loadModels, health: loadHealth, routing: loadRouting, keys: loadKeys };
+            (pages[page] || loadOverview)(c);
+        }
+
+        async function loadOverview(c) {
+            c.innerHTML = '<div class="card"><h2>Loading...</h2></div>';
+            try {
+                const version = await api('/api/admin/version');
+                document.getElementById('versionInfo').textContent = `v${version.app_version || 'dev'}`;
+                const health = await api('/api/admin/health').catch(() => []);
+                const providers = await api('/api/admin/providers').catch(() => []);
+                const okCount = health.filter(h => h.last_status === 'success' || h.last_status === 'ok').length;
+                const openCount = health.filter(h => h.circuit_state === 'open').length;
+                c.innerHTML = `
+                    <div class="stats">
+                        <div class="stat"><div class="value">${providers.length}</div><div class="label">Providers</div></div>
+                        <div class="stat"><div class="value">${health.length}</div><div class="label">Total Routes</div></div>
+                        <div class="stat"><div class="value" style="color:#34d399">${okCount}</div><div class="label">Healthy Routes</div></div>
+                        <div class="stat"><div class="value" style="color:#f87171">${openCount}</div><div class="label">Circuit Open</div></div>
+                    </div>
+                    <div class="card"><h2>Version Info</h2><pre>${JSON.stringify(version, null, 2)}</pre></div>
+                    <div class="card"><h2>Route Health</h2><table><thead><tr><th>Provider</th><th>Model</th><th>Status</th><th>5m Avail</th><th>LCB</th><th>TTFT P95</th><th>Circuit</th></tr></thead><tbody>
+                        ${health.map(h => `<tr><td>${h.provider||'?'}</td><td>${h.upstream_model_id||'?'}</td><td><span class="badge ${h.last_status==='success'||h.last_status==='ok'?'badge-ok':h.last_status==='unknown'?'badge-warn':'badge-error'}">${h.last_status||'?'}</span></td><td>${((h.availability_5m||0)*100).toFixed(1)}%</td><td>${((h.reliability_lcb||0)*100).toFixed(1)}%</td><td>${h.ttft_p95_ms?h.ttft_p95_ms+'ms':'?'}</td><td><span class="badge badge-${h.circuit_state||'closed'}">${h.circuit_state||'closed'}</span></td></tr>`).join('')}
+                    </tbody></table></div>`;
+            } catch(e) { c.innerHTML = `<div class="card"><h2>Error</h2><pre>${e}</pre></div>`; }
+        }
+
+        async function loadProviders(c) {
+            c.innerHTML = '<div class="card"><h2>Loading...</h2></div>';
+            try {
+                const providers = await api('/api/admin/providers');
+                c.innerHTML = `<div class="card"><h2>Providers (${providers.length})</h2><table><thead><tr><th>Name</th><th>Base URL</th><th>Key</th><th>Enabled</th><th>Models</th></tr></thead><tbody>
+                    ${providers.map(p => `<tr><td>${p.name}</td><td>${p.base_url}</td><td>${p.api_key_masked||'****'}</td><td>${p.enabled?'✅':'❌'}</td><td>${(p.models||[]).length}</td></tr>`).join('')}
+                </tbody></table></div>`;
+            } catch(e) { c.innerHTML = `<div class="card"><h2>Error</h2><pre>${e}</pre></div>`; }
+        }
+
+        async function loadModels(c) {
+            c.innerHTML = '<div class="card"><h2>Loading...</h2></div>';
+            try {
+                const models = await api('/api/admin/models');
+                c.innerHTML = `<div class="card"><h2>Canonical Models (${models.length})</h2><table><thead><tr><th>Name</th><th>Context</th><th>Coding</th><th>Reasoning</th><th>Vision</th><th>Tools</th></tr></thead><tbody>
+                    ${models.map(m => `<tr><td>${m.canonical_name||m.display_name}</td><td>${m.context_length||'?'}</td><td>${(m.scores||{}).coding_score||0}</td><td>${(m.scores||{}).reasoning_score||0}</td><td>${m.supports_vision?'✅':'❌'}</td><td>${m.supports_tools?'✅':'❌'}</td></tr>`).join('')}
+                </tbody></table></div>`;
+            } catch(e) { c.innerHTML = `<div class="card"><h2>Error</h2><pre>${e}</pre></div>`; }
+        }
+
+        async function loadHealth(c) {
+            c.innerHTML = '<div class="card"><h2>Loading...</h2></div>';
+            try {
+                const health = await api('/api/admin/health');
+                c.innerHTML = `<div class="card"><h2>Route Health (${health.length})</h2><table><thead><tr><th>Provider</th><th>Model</th><th>Status</th><th>5m</th><th>1h</th><th>24h</th><th>LCB</th><th>P95 Lat</th><th>TTFT P95</th><th>Fails</th><th>Circuit</th></tr></thead><tbody>
+                    ${health.map(h => `<tr><td>${h.provider||'?'}</td><td>${h.upstream_model_id||'?'}</td><td><span class="badge ${h.last_status==='success'||h.last_status==='ok'?'badge-ok':'badge-error'}">${h.last_status||'?'}</span></td><td>${((h.availability_5m||0)*100).toFixed(0)}%</td><td>${((h.availability_1h||0)*100).toFixed(0)}%</td><td>${((h.availability_24h||0)*100).toFixed(0)}%</td><td>${((h.reliability_lcb||0)*100).toFixed(0)}%</td><td>${h.latency_p95_ms?h.latency_p95_ms+'ms':'?'}</td><td>${h.ttft_p95_ms?h.ttft_p95_ms+'ms':'?'}</td><td>${h.consecutive_failures||0}</td><td><span class="badge badge-${h.circuit_state||'closed'}">${h.circuit_state||'closed'}</span></td></tr>`).join('')}
+                </tbody></table></div>`;
+            } catch(e) { c.innerHTML = `<div class="card"><h2>Error</h2><pre>${e}</pre></div>`; }
+        }
+
+        async function loadRouting(c) {
+            c.innerHTML = `<div class="card"><h2>Routing Preview</h2>
+                <p>Test a prompt to see routing decision:</p>
+                <textarea id="previewPrompt" rows="3" style="width:100%;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;padding:8px;margin-bottom:8px" placeholder="Enter a test prompt..."></textarea>
+                <button class="btn btn-primary" onclick="doPreview()">Preview</button>
+                <div id="previewResult" style="margin-top:16px"></div>
+            </div>
+            <div class="card"><h2>Recent Decisions</h2><div id="decisionsList">Loading...</div></div>`;
+            try {
+                const decisions = await api('/api/admin/routing/decisions?limit=20');
+                document.getElementById('decisionsList').innerHTML = `<table><thead><tr><th>Time</th><th>Model</th><th>Task</th><th>Difficulty</th><th>Selected</th><th>Status</th></tr></thead><tbody>
+                    ${decisions.map(d => `<tr><td>${new Date((d.timestamp||0)*1000).toLocaleTimeString()}</td><td>${d.requested_model||'?'}</td><td>${d.task_type||'?'}</td><td>${d.difficulty||'?'}</td><td>${d.selected_canonical_model||'?'}</td><td>${d.final_status||'?'}</td></tr>`).join('')}
+                </tbody></table>`;
+            } catch(e) { document.getElementById('decisionsList').innerHTML = `<pre>${e}</pre>`; }
+        }
+
+        async function doPreview() {
+            const prompt = document.getElementById('previewPrompt').value;
+            if (!prompt) return;
+            try {
+                const result = await api('/api/admin/routing/preview', 'POST', { messages: [{role:'user',content:prompt}], model:'auto' });
+                document.getElementById('previewResult').innerHTML = `<pre>${JSON.stringify(result, null, 2)}</pre>`;
+            } catch(e) { document.getElementById('previewResult').innerHTML = `<pre>Error: ${e}</pre>`; }
+        }
+
+        async function loadKeys(c) {
+            c.innerHTML = '<div class="card"><h2>Loading...</h2></div>';
+            try {
+                const keys = await api('/api/admin/client-keys');
+                c.innerHTML = `<div class="card"><h2>Client Keys (${keys.length})</h2><table><thead><tr><th>Name</th><th>Prefix</th><th>Enabled</th><th>RPM</th><th>Last Used</th></tr></thead><tbody>
+                    ${keys.map(k => `<tr><td>${k.name}</td><td>${k.key_prefix}****</td><td>${k.enabled?'✅':'❌'}</td><td>${k.rpm_limit||'∞'}</td><td>${k.last_used_at?new Date(k.last_used_at*1000).toLocaleString():'Never'}</td></tr>`).join('')}
+                </tbody></table></div>`;
+            } catch(e) { c.innerHTML = `<div class="card"><h2>Error</h2><pre>${e}</pre></div>`; }
+        }
+    </script>
+</body>
+</html>

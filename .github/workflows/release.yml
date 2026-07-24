@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Verify tag matches VERSION
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          VERSION=$(cat VERSION)
+          if [ "$TAG" != "$VERSION" ]; then
+            echo "ERROR: Tag ($TAG) does not match VERSION file ($VERSION)"
+            exit 1
+          fi
+          echo "Tag matches VERSION: $VERSION"
+
+      - name: Run tests
+        run: pytest -q
+
+      - name: Docker build
+        run: |
+          docker build \
+            --build-arg APP_VERSION=$(cat VERSION) \
+            --build-arg GIT_COMMIT=${{ github.sha }} \
+            -t model-gateway:$(cat VERSION) \
+            -t model-gateway:sha-${{ github.sha }} \
+            .
+
+      - name: Generate SHA256
+        run: |
+          docker save model-gateway:$(cat VERSION) | sha256sum > image.sha256
+          echo "Image SHA256: $(cat image.sha256)"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          body: |
+            ## Version $(cat VERSION)
+
+            See CHANGELOG.md for details.
+
+            ### Docker Image
+            ```
+            docker pull ghcr.io/annatianpm/model-gateway:$(cat VERSION)
+            ```
+
+            ### Deploy
+            ```bash
+            ./scripts/deploy.sh v$(cat VERSION)
+            ```
+
+            ### Rollback
+            ```bash
+            ./scripts/rollback.sh v<previous-version>
+            ```
+          draft: false
+          prerelease: false
